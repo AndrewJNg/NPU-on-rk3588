@@ -51,10 +51,10 @@ if __name__ == '__main__':
 
     
     # feed inputs to the model, run and print out it's raw outputs
-    input_data = pre.combine_inputs(IMG_PATH_narrow1 = "narrow1.png" , 
-                                    IMG_PATH_narrow2 = "narrow2.png", 
-                                    IMG_PATH_wide1 = "wide1.png",
-                                    IMG_PATH_wide2 = "wide2.png")
+    input_data = pre.combine_inputs(IMG_PATH_narrow1 = "dataset/narrow1.png" , 
+                                    IMG_PATH_narrow2 = "dataset/narrow2.png", 
+                                    IMG_PATH_wide1 = "dataset/wide1.png",
+                                    IMG_PATH_wide2 = "dataset/wide2.png")
     outputs = rknn.inference(inputs=input_data, data_format=None)
 
     # save results
