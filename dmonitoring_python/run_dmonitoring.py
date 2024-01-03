@@ -7,7 +7,7 @@ import preprocess_dmonitoring as pre
 if __name__ == '__main__':
     # Initialise NPU with model
     rknn = RKNNLite(verbose=False)
-    rknn.load_rknn("model/dmonitoring_model.rknn")
+    rknn.load_rknn("model/dmonitoring.rknn")
     ret = rknn.init_runtime()
     
     # feed inputs to the model, run and print out it's raw outputs
