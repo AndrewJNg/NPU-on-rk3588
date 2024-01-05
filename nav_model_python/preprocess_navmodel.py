@@ -17,7 +17,7 @@ def BGR2GRAY(image_path):
     output = img_grey
     return output
 
-def combine_inputs(IMG_PATH = "dataset/pic.png"):
+def combine_inputs(IMG_PATH = "dataset/map.png"):
     img = BGR2GRAY(IMG_PATH)
 
     output = img.reshape((1, 256, 256, 1)).astype(np.float32)
@@ -27,7 +27,7 @@ def combine_inputs(IMG_PATH = "dataset/pic.png"):
     # cv2.waitKey(0)
     
     
-    return output
+    return [output]
 
  
 # test script to test preprocess step
