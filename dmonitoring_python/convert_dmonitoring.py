@@ -4,8 +4,8 @@ from rknn.api import RKNN
 # import preprocess file
 import preprocess_dmonitoring as pre
 
-ONNX_MODEL = 'model/dmonitoring.onnx' # input model
-RKNN_MODEL = 'model/dmonitoring.rknn' # output model
+ONNX_MODEL = 'model/dmonitoring_model.onnx' # input model
+RKNN_MODEL = 'model/dmonitoring_model.rknn' # output model
 
 # load onnx model and build rknn model from it
 if __name__ == '__main__':
