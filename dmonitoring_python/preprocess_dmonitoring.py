@@ -20,7 +20,10 @@ def BGR2YUV420(image_path):
     return output
 
 def combine_inputs(IMG_PATH = "dataset/ecam.jpeg"):
+    # MODEL_WIDTH = 1440
+    # MODEL_HEIGHT = 960
     img = BGR2YUV420(IMG_PATH)
+    # img = np.zeros([1,MODEL_HEIGHT * MODEL_WIDTH], dtype=np.uint8)
     calib_input = np.zeros((1,3),dtype=np.float32)
     return [img,calib_input]
 
