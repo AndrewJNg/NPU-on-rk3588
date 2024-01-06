@@ -19,19 +19,18 @@ class RKNNModel():
 
     ################################################################
     #(TODO add 3)
-    self.input_names = ['input_img','calib','outputs']
+    self.input_names = ['input_img','calib']
 
     self.input_shapes = {
     'input_img': [1, 1382400],
-    'calib': [1, 3],
-    'outputs': [1, 84]}
+    'calib': [1, 3]}
 
     self.input_dtypes = {
     'input_img': np.float32,
-    'calib': np.float32,
-    'outputs': np.float32}
+    'calib': np.float32}
     
-    ## Problem with getting the input shapes and data needed by the rknn model
+    ### TODO current problem with getting the input names, shape and dtypes needed by the rknn model (through python)
+
     # self.session = create_rknn_session(path, fp16_to_fp32=True)
     # self.input_names = [x.name for x in self.session.get_inputs()]
     # self.input_shapes = {x.name: [1, *x.shape[1:]] for x in self.session.get_inputs()}
@@ -62,7 +61,7 @@ class RKNNModel():
     inputs = {k: v.reshape(self.input_shapes[k]).astype(self.input_dtypes[k]) for k,v in inputs.items()}
 
     # running inputs through model
-    outputs = self.rknn.inference(inputs=[inputs['input_img'],inputs['calib']], data_format=None)
+    outputs = self.rknn.inference(inputs=[inputs[input_name] for input_name in self.input_names], data_format=None)
 
     # check that the output is valid
     assert len(outputs) == 1, "Only single model outputs are supported"
