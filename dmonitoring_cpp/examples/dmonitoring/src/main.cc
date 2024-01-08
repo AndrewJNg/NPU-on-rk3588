@@ -1,16 +1,4 @@
-// Copyright (c) 2021 by Rockchip Electronics Co., Ltd. All Rights Reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+
 
 /*-------------------------------------------
                 Includes
@@ -21,16 +9,9 @@
 #include <string.h>
 #include <sys/time.h>
 
-#define _BASETSD_H
-
-// #include "RgaUtils.h"
-
-// #include "postprocess.h"
-
 #include "rknn_api.h"
 #include "preprocess_dmonitoring.h"
 
-#define PERF_WITH_POST 1
 /*-------------------------------------------
                   Functions
 -------------------------------------------*/
@@ -51,15 +32,6 @@ static void dump_tensor_attr(rknn_tensor_attr *attr)
          get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
 
-static uint32_t get_input_element_type(rknn_tensor_attr *attr){
-  return   attr->type;
-}
-static uint32_t get_input_element_size(rknn_tensor_attr *attr){
-  return  attr->n_elems;
-}
-
-double __get_us(struct timeval t) { return (t.tv_sec * 1000000 + t.tv_usec); }
-
 static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz)
 {
   unsigned char *data;
@@ -67,10 +39,7 @@ static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz)
 
   data = NULL;
 
-  if (NULL == fp)
-  {
-    return NULL;
-  }
+  if (NULL == fp)return NULL;
 
   ret = fseek(fp, ofst, SEEK_SET);
   if (ret != 0)
@@ -103,25 +72,11 @@ static unsigned char *load_model(const char *filename, int *model_size)
 
   fseek(fp, 0, SEEK_END);
   int size = ftell(fp);
-
   data = load_data(fp, 0, size);
-
   fclose(fp);
 
   *model_size = size;
   return data;
-}
-
-static int saveFloat(const char *file_name, float *output, int element_size)
-{
-  FILE *fp;
-  fp = fopen(file_name, "w");
-  for (int i = 0; i < element_size; i++)
-  {
-    fprintf(fp, "%.6f\n", output[i]);
-  }
-  fclose(fp);
-  return 0;
 }
 
 /*-------------------------------------------
@@ -141,7 +96,7 @@ int main(int argc, char **argv)
 
   // Initialising the model
   rknn_context ctx = 0;
-  int            model_len = 0;
+  int model_len = 0;
   int model_data_size = 0;
 
   unsigned char* model = load_model(model_name,  &model_data_size);
@@ -152,7 +107,6 @@ int main(int argc, char **argv)
   ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
 
   printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
-
 
   /////////////////////////////////////////////////////////////////////////////
   // Model attributes
@@ -177,6 +131,7 @@ int main(int argc, char **argv)
   //   rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
   //   dump_tensor_attr(&(output_attrs[i]));
   // }
+  
   /////////////////////////////////////////////////////////////////////////////
   // Fill inputs
   rknn_input inputs[io_num.n_input];
@@ -189,20 +144,22 @@ int main(int argc, char **argv)
   std::cout << value[0].size() << std::endl;
   std::cout << value[1].size() << std::endl;
    printf("---------\n" );
+  printf("%s\n\n",get_type_string(input_attrs[0].type));
 
   inputs[0].index = 0; // img
-  inputs[0].type  = RKNN_TENSOR_UINT8; //RKNN_TENSOR_FLOAT16
-  inputs[0].size  = get_input_element_size(&(input_attrs[0])); //input_attrs->n_elems; // 1440 *960
+  inputs[0].type  = RKNN_TENSOR_UINT8;  // TODO - figure out FP16 transform to RKNN_TENSOR format (dmonitoring model is tensor float32)
+  inputs[0].size  = input_attrs[0].n_elems; 
   inputs[0].fmt   = RKNN_TENSOR_NHWC;
   inputs[0].buf   = value[0].data;
   
   inputs[1].index = 1; // calib
-  inputs[1].type  = RKNN_TENSOR_UINT8; //RKNN_TENSOR_FLOAT16
-  inputs[1].size  = get_input_element_size(&(input_attrs[1])); //input_attrs->n_elems;  // 1*3
+  inputs[1].type  = RKNN_TENSOR_UINT8;
+  inputs[1].size  = input_attrs[1].n_elems; 
   inputs[1].fmt   = RKNN_TENSOR_NHWC;
   inputs[1].buf   = value[1].data;
   
   rknn_inputs_set(ctx, io_num.n_input, inputs);
+
   /////////////////////////////////////////////////////////////////////////////
   // Running the model
   rknn_run(ctx, nullptr);
