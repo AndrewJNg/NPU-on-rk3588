@@ -37,6 +37,9 @@ set(CMAKE_INSTALL_RPATH "lib")
 
 add_executable(dmonitoring
     src/main.cc
+    src/preprocess_dmonitoring.h
+    
+    
 )
 
 target_link_libraries(dmonitoring

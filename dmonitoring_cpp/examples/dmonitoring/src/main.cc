@@ -15,248 +15,224 @@
 /*-------------------------------------------
                 Includes
 -------------------------------------------*/
-#include "opencv2/core/core.hpp"
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/imgproc.hpp"
-#include "rknn_api.h"
-
-#include <stdint.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/time.h>
 
-#include <fstream>
-#include <iostream>
+#define _BASETSD_H
 
-using namespace std;
-using namespace cv;
+// #include "RgaUtils.h"
 
+// #include "postprocess.h"
+
+#include "rknn_api.h"
+#include "preprocess_dmonitoring.h"
+
+#define PERF_WITH_POST 1
 /*-------------------------------------------
                   Functions
 -------------------------------------------*/
 
-static void dump_tensor_attr(rknn_tensor_attr* attr)
+static void dump_tensor_attr(rknn_tensor_attr *attr)
 {
-  printf("  index=%d, name=%s, n_dims=%d, dims=[%d, %d, %d, %d], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, "
+  std::string shape_str = attr->n_dims < 1 ? "" : std::to_string(attr->dims[0]);
+  for (int i = 1; i < attr->n_dims; ++i)
+  {
+    shape_str += ", " + std::to_string(attr->dims[i]);
+  }
+
+  printf("  index=%d, name=%s, n_dims=%d, dims=[%s], n_elems=%d, size=%d, w_stride = %d, size_with_stride=%d, fmt=%s, "
+         "type=%s, qnt_type=%s, "
          "zp=%d, scale=%f\n",
-         attr->index, attr->name, attr->n_dims, attr->dims[0], attr->dims[1], attr->dims[2], attr->dims[3],
-         attr->n_elems, attr->size, get_format_string(attr->fmt), get_type_string(attr->type),
+         attr->index, attr->name, attr->n_dims, shape_str.c_str(), attr->n_elems, attr->size, attr->w_stride,
+         attr->size_with_stride, get_format_string(attr->fmt), get_type_string(attr->type),
          get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
 
-static unsigned char* load_model(const char* filename, int* model_size)
-{
-  FILE* fp = fopen(filename, "rb");
-  if (fp == nullptr) {
-    printf("fopen %s fail!\n", filename);
-    return NULL;
-  }
-  fseek(fp, 0, SEEK_END);
-  int            model_len = ftell(fp);
-  unsigned char* model     = (unsigned char*)malloc(model_len);
-  fseek(fp, 0, SEEK_SET);
-  if (model_len != fread(model, 1, model_len, fp)) {
-    printf("fread %s fail!\n", filename);
-    free(model);
-    return NULL;
-  }
-  *model_size = model_len;
-  if (fp) {
-    fclose(fp);
-  }
-  return model;
+static uint32_t get_input_element_type(rknn_tensor_attr *attr){
+  return   attr->type;
+}
+static uint32_t get_input_element_size(rknn_tensor_attr *attr){
+  return  attr->n_elems;
 }
 
-static int rknn_GetTop(float* pfProb, float* pfMaxProb, uint32_t* pMaxClass, uint32_t outputCount, uint32_t topNum)
+double __get_us(struct timeval t) { return (t.tv_sec * 1000000 + t.tv_usec); }
+
+static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz)
 {
-  uint32_t i, j;
+  unsigned char *data;
+  int ret;
 
-#define MAX_TOP_NUM 20
-  if (topNum > MAX_TOP_NUM)
-    return 0;
+  data = NULL;
 
-  memset(pfMaxProb, 0, sizeof(float) * topNum);
-  memset(pMaxClass, 0xff, sizeof(float) * topNum);
-
-  for (j = 0; j < topNum; j++) {
-    for (i = 0; i < outputCount; i++) {
-      if ((i == *(pMaxClass + 0)) || (i == *(pMaxClass + 1)) || (i == *(pMaxClass + 2)) || (i == *(pMaxClass + 3)) ||
-          (i == *(pMaxClass + 4))) {
-        continue;
-      }
-
-      if (pfProb[i] > *(pfMaxProb + j)) {
-        *(pfMaxProb + j) = pfProb[i];
-        *(pMaxClass + j) = i;
-      }
-    }
+  if (NULL == fp)
+  {
+    return NULL;
   }
 
-  return 1;
+  ret = fseek(fp, ofst, SEEK_SET);
+  if (ret != 0)
+  {
+    printf("blob seek failure.\n");
+    return NULL;
+  }
+
+  data = (unsigned char *)malloc(sz);
+  if (data == NULL)
+  {
+    printf("buffer malloc failure.\n");
+    return NULL;
+  }
+  ret = fread(data, 1, sz, fp);
+  return data;
+}
+
+static unsigned char *load_model(const char *filename, int *model_size)
+{
+  FILE *fp;
+  unsigned char *data;
+
+  fp = fopen(filename, "rb");
+  if (NULL == fp)
+  {
+    printf("Open file %s failed.\n", filename);
+    return NULL;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  int size = ftell(fp);
+
+  data = load_data(fp, 0, size);
+
+  fclose(fp);
+
+  *model_size = size;
+  return data;
+}
+
+static int saveFloat(const char *file_name, float *output, int element_size)
+{
+  FILE *fp;
+  fp = fopen(file_name, "w");
+  for (int i = 0; i < element_size; i++)
+  {
+    fprintf(fp, "%.6f\n", output[i]);
+  }
+  fclose(fp);
+  return 0;
 }
 
 /*-------------------------------------------
-                  Main Function
+                  Main Functions
 -------------------------------------------*/
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
-  const int MODEL_IN_WIDTH    = 1440;
-  const int MODEL_IN_HEIGHT   = 960;
+  if (argc < 3) // show how to use this command
+  {
+    printf("Usage: %s <rknn model> <input_image_path> <resize/letterbox> <output_image_path>\n", argv[0]);
+    return -1;
+  }
 
+  int ret;
+  char *model_name = (char *)argv[1];
+  char *input_path = argv[2];
+
+  // Initialising the model
   rknn_context ctx = 0;
-  int            ret;
   int            model_len = 0;
-  unsigned char* model;
+  int model_data_size = 0;
 
-  const char* model_path = argv[1];
-  const char* img_path   = argv[2];
-
-  if (argc != 3) {
-    printf("Usage: %s <rknn model> <image_path> \n", argv[0]);
-    return -1;
-  }
-
-  // Load image
-  cv::Mat orig_img = imread(img_path, cv::IMREAD_COLOR);
-  if (!orig_img.data) {
-    printf("cv::imread %s fail!\n", img_path);
-    return -1;
-  }
-
-  cv::Mat orig_img_yuv;
-  cv::cvtColor(orig_img, orig_img_yuv, cv::COLOR_BGR2YUV);
-
-  // Process input
-  cv::Mat img_yuv_resized;
-  cv::resize(orig_img_yuv, img_yuv_resized, cv::Size(MODEL_IN_WIDTH, MODEL_IN_HEIGHT), 0, 0, cv::INTER_LINEAR);
-
-  vector<Mat> yuv_channels;
-  cv::split(img_yuv_resized, yuv_channels);
-  cv::Mat img_y = yuv_channels[0];
-
-  cv::Mat flattened = img_y.reshape(1, 1);
-  // double* img_data = img_flatted.ptr<double>(0);
+  unsigned char* model = load_model(model_name,  &model_data_size);
+  ret = rknn_init(&ctx, model, model_data_size, 0, NULL);
   
-  // Fake calib input
-  cv::Mat calib_inputs = cv::Mat::zeros(1, 3, CV_32F);
-
-  // Load RKNN Model
-  model = load_model(model_path, &model_len);
-  ret   = rknn_init(&ctx, model, model_len, 0, NULL);
-  if (ret < 0) {
-    printf("rknn_init fail! ret=%d\n", ret);
-    return -1;
-  }
-
-  // Get Model Input Output Info
+  // get input and output shape
   rknn_input_output_num io_num;
   ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-  if (ret != RKNN_SUCC) {
-    printf("rknn_query fail! ret=%d\n", ret);
-    return -1;
-  }
+
   printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
-  printf("input tensors:\n");
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Model attributes
+
+  // get model input attributes
   rknn_tensor_attr input_attrs[io_num.n_input];
   memset(input_attrs, 0, sizeof(input_attrs));
-  for (int i = 0; i < io_num.n_input; i++) {
+
+  for (int i = 0; i < io_num.n_input; i++)
+  {
     input_attrs[i].index = i;
-    ret                  = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
-    if (ret != RKNN_SUCC) {
-      printf("rknn_query fail! ret=%d\n", ret);
-      return -1;
-    }
+    rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
     dump_tensor_attr(&(input_attrs[i]));
   }
 
-  printf("output tensors:\n");
-  rknn_tensor_attr output_attrs[io_num.n_output];
-  memset(output_attrs, 0, sizeof(output_attrs));
-  for (int i = 0; i < io_num.n_output; i++) {
-    output_attrs[i].index = i;
-    ret                   = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
-    if (ret != RKNN_SUCC) {
-      printf("rknn_query fail! ret=%d\n", ret);
-      return -1;
-    }
-    dump_tensor_attr(&(output_attrs[i]));
-  }
-
-  // Set Input Data
+  //get model output attributes
+  // rknn_tensor_attr output_attrs[io_num.n_output];
+  // memset(output_attrs, 0, sizeof(output_attrs));
+  // for (int i = 0; i < io_num.n_output; i++)
+  // {
+  //   output_attrs[i].index = i;
+  //   rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+  //   dump_tensor_attr(&(output_attrs[i]));
+  // }
+  /////////////////////////////////////////////////////////////////////////////
+  // Fill inputs
   rknn_input inputs[io_num.n_input];
-  memset(inputs, 0, io_num.n_input * sizeof(rknn_input));
-   
+  memset(inputs, 0, sizeof(inputs));  //preallocate 
+
+  // Sample input, and print their shapes
+  std::vector<cv::Mat> value = combine_inputs("dataset/ecam.jpeg");
+   printf("---------\n" );
+   printf("Input shape\n" );
+  std::cout << value[0].size() << std::endl;
+  std::cout << value[1].size() << std::endl;
+   printf("---------\n" );
+
   inputs[0].index = 0; // img
-  inputs[0].type  = RKNN_TENSOR_FLOAT16;
-  inputs[0].size  = flattened.cols * flattened.rows * sizeof(float);
+  inputs[0].type  = RKNN_TENSOR_UINT8; //RKNN_TENSOR_FLOAT16
+  inputs[0].size  = get_input_element_size(&(input_attrs[0])); //input_attrs->n_elems; // 1440 *960
   inputs[0].fmt   = RKNN_TENSOR_NHWC;
-  inputs[0].buf   = flattened.data;
-
+  inputs[0].buf   = value[0].data;
+  
   inputs[1].index = 1; // calib
-  inputs[1].type  = RKNN_TENSOR_FLOAT16;
-  inputs[1].size  = calib_inputs.cols * calib_inputs.rows * sizeof(float);
+  inputs[1].type  = RKNN_TENSOR_UINT8; //RKNN_TENSOR_FLOAT16
+  inputs[1].size  = get_input_element_size(&(input_attrs[1])); //input_attrs->n_elems;  // 1*3
   inputs[1].fmt   = RKNN_TENSOR_NHWC;
-  inputs[1].buf   = calib_inputs.data;
-
-  // Save a sample of input image
-  // imwrite("sample.jpg", img_y);
-
-  ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
-  if (ret < 0) {
-    printf("rknn_input_set fail! ret=%d\n", ret);
-    return -1;
-  }
-
-  // Run
-  printf("rknn_run\n");
-  ret = rknn_run(ctx, nullptr);
-  if (ret < 0) {
-    printf("rknn_run fail! ret=%d\n", ret);
-    return -1;
-  }
-
-  // Get Output
+  inputs[1].buf   = value[1].data;
+  
+  rknn_inputs_set(ctx, io_num.n_input, inputs);
+  /////////////////////////////////////////////////////////////////////////////
+  // Running the model
+  rknn_run(ctx, nullptr);
+  
+  /////////////////////////////////////////////////////////////////////////////
+  // Getting output
   rknn_output outputs[1];
   memset(outputs, 0, sizeof(outputs));
   outputs[0].want_float = 1;
-  ret                   = rknn_outputs_get(ctx, 1, outputs, NULL);
-  if (ret < 0) {
-    printf("rknn_outputs_get fail! ret=%d\n", ret);
-    return -1;
-  }
+  ret = rknn_outputs_get(ctx, 1, outputs, NULL);
 
+  /////////////////////////////////////////////////////////////////////////////
   // Post Process
   for (int i = 0; i < io_num.n_output; i++) {
-    uint32_t MaxClass[5];
-    float    fMaxProb[5];
     float*   buffer = (float*)outputs[i].buf;
     uint32_t sz     = outputs[i].size / 4;
 
-    rknn_GetTop(buffer, fMaxProb, MaxClass, sz, 5);
-
-    printf(" --- Top5 ---\n");
-    for (int i = 0; i < 5; i++) {
-      printf("%3d: %8.6f\n", MaxClass[i], fMaxProb[i]);
-    }
-
     printf(" --- output ---\n ");
-    for (int i = 0; i < 84; i++) {
+    for (int i = 0; i < sz ; i++) {
       printf("%3f ", buffer[i]);
     }
   }
-
-
   // Release rknn_outputs
   rknn_outputs_release(ctx, 1, outputs);
 
   // Release
-  if (ctx > 0)
-  {
-    rknn_destroy(ctx);
-  }
-  if (model) {
-    free(model);
-  }
+  if (ctx > 0) rknn_destroy(ctx);
+  if (model) free(model);
+
+
+
   return 0;
 }
