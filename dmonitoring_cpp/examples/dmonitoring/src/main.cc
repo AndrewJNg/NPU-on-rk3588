@@ -101,6 +101,10 @@ int main(int argc, char **argv)
 
   unsigned char* model = load_model(model_name,  &model_data_size);
   ret = rknn_init(&ctx, model, model_data_size, 0, NULL);
+
+  // set core number
+  rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;
+  ret = rknn_set_core_mask(ctx,core_mask);
   
   // get input and output shape
   rknn_input_output_num io_num;
@@ -147,13 +151,13 @@ int main(int argc, char **argv)
   printf("%s\n\n",get_type_string(input_attrs[0].type));
 
   inputs[0].index = 0; // img
-  inputs[0].type  = RKNN_TENSOR_UINT8;  // TODO - figure out FP16 transform to RKNN_TENSOR format (dmonitoring model is tensor float32)
+  inputs[0].type  = RKNN_TENSOR_FLOAT16;  // TODO - figure out FP16 transform to RKNN_TENSOR format (dmonitoring model is tensor float32)
   inputs[0].size  = input_attrs[0].n_elems; 
   inputs[0].fmt   = RKNN_TENSOR_NHWC;
   inputs[0].buf   = value[0].data;
   
   inputs[1].index = 1; // calib
-  inputs[1].type  = RKNN_TENSOR_UINT8;
+  inputs[1].type  = RKNN_TENSOR_FLOAT16;
   inputs[1].size  = input_attrs[1].n_elems; 
   inputs[1].fmt   = RKNN_TENSOR_NHWC;
   inputs[1].buf   = value[1].data;

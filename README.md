@@ -38,3 +38,8 @@ When the library test returns an error, it means that the library version is mis
 - suggest to make python virtualenv using 
 "python[version] -m venv [virtual-environment-name]"
     https://www.freecodecamp.org/news/how-to-setup-virtual-environments-in-python/
+
+
+## Code to transfer to Openpilot
+In the openpilot folde, there is a folder called openpilot.py which is the modified version of the openpilot model runner
+you can transfer over to the openpilot version, and add in support for RKNN (this is already done in the development fork of openpilot for Kommu)
