@@ -1,4 +1,7 @@
+
+
 # openpilot-on-rk3588
+### Written by AndrewJNg for Kommu next-gen hardware
 for rknn-toolkit2 V1.6.0
 
 ## System setup

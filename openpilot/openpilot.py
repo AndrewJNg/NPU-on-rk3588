@@ -1,3 +1,7 @@
+'''
+Written by AndrewJNg (https://github.com/AndrewJNg) under Kommu
+'''
+
 import itertools
 import os
 import sys
